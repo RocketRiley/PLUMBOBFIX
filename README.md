@@ -25,6 +25,20 @@ simdoc fix --apply --py-compat --native   # actually apply
 simdoc doctor --apply                     # shortcut for common fixes
 ```
 
+## Installer
+
+For a click-and-run experience, download the project as a ZIP from GitHub,
+extract it, and launch `installer.py`. The installer creates a virtual
+environment in `venv/`, installs `simdoc`, and then runs the CLI. Subsequent
+launches reuse the existing environment.
+
+You can forward CLI arguments through the installer. For example, to perform a
+scan immediately:
+
+```bash
+python installer.py scan
+```
+
 ## Limitations
 
 - Tuning conflict detection is a placeholder.

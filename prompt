@@ -1,0 +1,307 @@
+Create a free, local, cross-platform CLI called simdoc that diagnoses and fixes The Sims 4 mods and CC after a game update, and can also run native game “doctor” fixes. Implement production-grade code with clean structure, tests, and docs.
+
+High-level goals
+
+Input: The user provides the Documents Sims 4 folder path (e.g. ~/Documents/Electronic Arts/The Sims 4).
+
+Detect updates: Read the game version and compare with the last run.
+
+Scan all mods/CC: Inventory .package, .ts4script, .py, .pyc, etc.
+
+Diagnose: Parse lastException.txt (and, if present, Better Exceptions exports) to identify likely failing mods and conflicts.
+
+Auto-fix (safe by default):
+
+Native fixes (cache clearing, common file sanity checks).
+
+Python compatibility (delete stale .pyc with wrong magic).
+
+Tuning/CC conflict detection (duplicate tuning instance IDs) with dry-run and explicit, reversible apply.
+
+Backups + Reports: Always produce timestamped backups and a Markdown/HTML report with every action taken or proposed.
+
+No internet calls. Everything runs locally.
+
+Non-functional requirements
+
+Python 3.10+.
+
+Cross-platform: Windows, macOS.
+
+Standard library preferred; allow small, permissive deps (rich, click or argparse, etc.).
+
+Deterministic, idempotent operations; dry-run by default; --apply to write.
+
+Clear logging to console + report files.
+
+Clean architecture: modules, docstrings, type hints, unit tests.
+
+CLI design
+
+Command: simdoc (entry point).
+Subcommands and flags:
+
+simdoc init --sims-folder "<path to Documents/Electronic Arts/The Sims 4>"
+
+Validates folder structure.
+
+Persists state in simdoc_state.json (in working dir by default).
+
+Reads and stores current game version from GameVersion.txt if present.
+
+simdoc scan
+
+Reads current game version.
+
+Inventories mods under <docs>/Mods (walk recursively).
+
+Computes a stable inventory hash (paths + sizes + mtimes).
+
+Parses lastException.txt to extract last traceback and referenced mod paths.
+
+Outputs a Scan Summary report with:
+
+Detected game version changes since last run.
+
+LE presence + brief traceback snippet.
+
+Inventory stats and fingerprint.
+
+Updates saved state (last_seen_game_version, last_inventory_hash, last_scan_time).
+
+simdoc fix [--apply] [--native] [--py-compat] [--conflicts]
+
+--native: Native doctor
+
+Delete localthumbcache.package if present.
+
+(Implement as a function; leave TODO hooks for other caches or Options.ini sanity checks.)
+
+--py-compat: Python compatibility
+
+Find .pyc files in Mods.
+
+Read 4-byte magic; if it doesn’t match the allowed set for Sims 4 (historically 3.7/3.8), back up and delete.
+
+Do not import any mod code.
+
+--conflicts: Duplicate tuning ID detector
+
+MVP: Enumerate .package files, build list; stub collision detection with clear TODOs.
+
+Write analysis results to the report (how many packages, plan of attack).
+
+Always produce a Fix Run report and a backup directory; only modify files when --apply is present.
+
+simdoc doctor [--apply]
+
+Shortcut that runs a sensible default: --native + --py-compat.
+
+Design principle: read-only by default, explicit --apply to write changes.
+
+Files & structure
+
+Generate a small but real project:
+
+simdoc/
+  simdoc.py                 # CLI entry (can be package entry point)
+  __init__.py
+  core/
+    paths.py                # Sims folder detection & validation
+    state.py                # load/save JSON state
+    reporting.py            # write Markdown reports
+    util.py                 # helpers (timestamp, hashing, IO)
+  detectors/
+    update_check.py         # read and parse GameVersion.txt
+    scan_mods.py            # walk Mods; inventory & hash
+  parsers/
+    last_exception.py       # parse lastException.txt (+ hooks for Better Exceptions)
+  fixers/
+    native.py               # cache clears, Options.ini sanity (TODO)
+    py_compat.py            # .pyc magic detection + deletion
+    tuning_conflicts.py     # stub for duplicate tuning IDs (with clear TODOs)
+  data/
+    schemas/                # if you need JSON schemas
+  reports/                  # generated at runtime
+  backups/                  # timestamped backups at runtime
+  tests/
+    test_paths.py
+    test_state.py
+    test_scan.py
+    test_pycompat.py
+  pyproject.toml
+  README.md
+  LICENSE
+
+
+Use argparse (or click, your choice) and rich for nicer output (optional).
+
+Implementation details
+Path model (core/paths.py)
+
+Build from the provided Docs root:
+
+docs_root = path to “The Sims 4”
+
+mods = <docs_root>/Mods
+
+localthumbcache = <docs_root>/localthumbcache.package
+
+last_exception = <docs_root>/lastException.txt
+
+game_version_txt = <docs_root>/GameVersion.txt
+
+validate() ensures docs_root and mods exist; return (ok, errors).
+
+State (core/state.py)
+
+Dataclass:
+
+sims_docs_root: str
+
+last_seen_game_version: str
+
+last_scan_time: float
+
+last_inventory_hash: str
+
+Load/save JSON to a file in the working dir (simdoc_state.json by default).
+
+Update check (detectors/update_check.py)
+
+Function read_game_version(paths):
+
+Read GameVersion.txt (if present).
+
+Extract something like 1.108.148.1030 via regex; return string or "".
+
+Inventory (detectors/scan_mods.py)
+
+Walk paths.mods, collecting files with lower-cased suffix in:
+
+.package, .ts4script, .zip, .py, .pyc
+
+For each: store size, mtime, ext.
+
+Compute a stable hash: sort by path; include size and rounded mtime.
+
+LE parser (parsers/last_exception.py)
+
+Read file if present; set present: bool.
+
+Pull the last Python traceback block.
+
+Extract any Mods\\...\\.py mentions.
+
+Return a dict with present, traceback_snippet, mod_hits (list).
+
+Fixers
+Native doctor (fixers/native.py)
+
+clear_caches(paths, dry_run) -> list[str]:
+
+If localthumbcache.package exists, schedule delete.
+
+If not dry run, delete; on failure, append WARN.
+
+Return list of human-readable actions performed/planned.
+
+Leave TODOs (commented) for Options.ini sanity & other caches (don’t implement yet).
+
+Python compatibility (fixers/py_compat.py)
+
+Maintain a small dict of CPython magic → version:
+
+b\"\\x42\\x0d\\x0d\\x0a\": \"3.7\", b\"\\x50\\x0d\\x0d\\x0a\": \"3.8\",
+
+b\"\\x60\\x0d\\x0d\\x0a\": \"3.9\", b\"\\x61\\x0d\\x0d\\x0a\": \"3.10\"
+
+Allowed set for Sims 4 target is {\"3.7\", \"3.8\"} (configurable constant).
+
+For each .pyc in inventory:
+
+Read first 4 bytes; if version not in allowed set → backup then delete (only when --apply).
+
+Return action strings for the report.
+
+Tuning conflicts (stub) (fixers/tuning_conflicts.py)
+
+For MVP: no binary parsing; just enumerate .package files and print “planned analysis”.
+
+Provide clear TODO about reading DBPF headers + index tables, extracting TGI for tuning resources, and detecting duplicate instance IDs across packages.
+
+Structure code so that a real analyzer can be dropped in later without changing the CLI.
+
+Reporting (core/reporting.py)
+
+Write a Markdown report:
+
+# <TITLE>
+
+## Changes detected
+
+Bulleted lists per section.
+
+Filename pattern: <YYYYmmdd_HHMMSS>_<slugified_title>.md.
+
+Ensure directories exist; return path to report.
+
+Backups
+
+All fixers receive:
+
+dry_run: bool
+
+backup_dir: <backups/YYYYmmdd_HHMMSS/>
+
+On write operations, copy originals to backups first.
+
+CLI (simdoc.py)
+
+Subparsers for init, scan, fix, doctor.
+
+fix composes the selected fixers; collects actions by section; writes report and prints where backups/report live.
+
+Helpful console messages; non-zero exit codes on fatal errors.
+
+Acceptance tests (implement with pytest)
+
+test_paths.py: valid/invalid Sims folder paths.
+
+test_state.py: round-trip save/load, defaults.
+
+test_scan.py: inventory hashing stable across runs; recognizes .package and .pyc.
+
+test_pycompat.py: create fake .pyc files with various magic bytes; verify dry-run vs. apply behavior and backups.
+
+Developer ergonomics
+
+pyproject.toml with dependencies (if any), tool configs, and entry point so pip install -e . gives simdoc on PATH.
+
+README.md:
+
+What it does; safety (backups, dry-run by default).
+
+Quickstart commands:
+
+simdoc init --sims-folder "C:/Users/<you>/Documents/Electronic Arts/The Sims 4"
+simdoc scan
+simdoc fix --py-compat --native           # dry-run
+simdoc fix --apply --py-compat --native   # actually apply
+simdoc doctor --apply
+
+
+Limitations: tuning conflict detection is stubbed; planned DBPF/TGI parsing; Better Exceptions support TBD.
+
+Code style & quality
+
+Use type hints, dataclasses, and clear docstrings.
+
+Keep modules small and single-purpose.
+
+Don’t crash on missing files; degrade gracefully and report.
+
+Prefer pure Python and stdlib; keep external deps minimal and permissive.
+
+Deliverables: all code files, tests, pyproject.toml, README.md, and a default LICENSE (MIT).
+Make sure the project runs end-to-end with python -m simdoc ... and via the console script simdoc.

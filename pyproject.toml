@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simdoc"
+version = "0.1.0"
+description = "Local CLI to diagnose and fix The Sims 4 mods"
+authors = [{name = "SimDoc Contributors"}]
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+simdoc = "simdoc.simdoc:main"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q"
